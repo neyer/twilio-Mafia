@@ -142,7 +142,10 @@ def handle_join(player_num, player_name, game_name, password):
     #first, see if this player is alreay playing a game
     players = Player.objects.filter(phone_num=player_num)
     if players:
-	return "Sorry, %s. You are alreay in a game." % player_name
+	if not players[0].alive:
+	    players[0].delete();
+	else:
+	    return "Sorry, %s. You are alreay in a game." % player_name
     games = Game.objects.filter(name=game_name)
     if not games:
 	return "Sorry, %s. No game by that name exists." % player_name

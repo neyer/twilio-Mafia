@@ -45,7 +45,7 @@ VICTORY_TEXTS = { MAFIA : 'The mafia have taken over the town. May god have merc
 TWIMLETS_BASE_URL = 'http://twimlets.com/message?Message%%5B0%%5D=%s'
 
 class Game(models.Model):
-    "Represents a single game of mafia."/home/markpneyer/webapps/mafia/lib/python2.6/
+    "Represents a single game of mafia."
 
 
     name = models.CharField(max_length=32,
@@ -72,6 +72,8 @@ class Game(models.Model):
 	    for call in calls:
 		call.make()
 		call.delete()
+
+
     def start(self):
 	"starts the game, telling each player his role."
         players = self.get_players()
@@ -143,11 +145,13 @@ class Game(models.Model):
         victim.die()        
 			          
         winner = self.check_for_victory()
-        if winner:
-           
 
-	    for player in self.get_players() + self.get_ghosts():
-		url = (TWIMLETS_BASE_URL % VICTORY_TEXTS[winner])
+        if winner:
+	    url = (TWIMLETS_BASE_URL % VICTORY_TEXTS[winner])
+	    for player in self.get_players():
+		OutgoingPhoneCall.objects.create(to_player=player,
+						 twiml_url=url)
+	    for player in self.get_ghosts():
 		OutgoingPhoneCall.objects.create(to_player=player,
 						 twiml_url=url)
 	    self.state = STATE_FINISHED	    
@@ -252,5 +256,7 @@ class OutgoingPhoneCall(models.Model):
     to_player = models.ForeignKey(Player)
 
     def make(self):
+	print "making a phone call!"
+	return
 	make_call(self.to_player.phone_num,
 		  self.twiml_url)	
