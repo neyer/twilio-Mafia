@@ -9,7 +9,7 @@ TWIML_BASE  =	"<Response>" \
 		"  <Sms>" \
 		"%s" \
 		" </Sms>"\
-		"</Repsonse>"
+		"</Response>"
     
 #dectorator for making sure people send the right number of args
 #to our functions
@@ -76,11 +76,11 @@ def sms(request):
 	return HttpResponse('go away plz')
     sender_num = request.REQUEST['From']
     msg = request.REQUEST['Body']
-
+    msg = msg.lower()
     commands = { 'new' : handle_new,
 		'join' : handle_join,
-		'vote':  handle_vote
-		 }
+		'vote':  handle_vote,
+		 'start': handle_start}
 
     parts = msg.split()
     if not parts[0] in commands:
@@ -95,7 +95,11 @@ def sms(request):
 
 ######################
 #  Individual Commands
-#      
+######################
+
+
+######################
+# Create a new game 
 ######################
 @SMSCommand("new", True,
 	    (str, 'player_name'),
@@ -125,6 +129,10 @@ def handle_new(player_num, player_name,game_name, password):
 
 
 
+
+######################
+# Join a game 
+######################
 @SMSCommand("join",True,
 	    (str,'your_name'),
 	    (str,'game_name'),
@@ -153,7 +161,25 @@ def handle_join(player_num, player_name, game_name, password):
     return "You have joined the game. Good luck!"
 
 
+######################
+# Start a game 
+######################
+@SMSCommand('start',False)
+def handle_start(player):
+    #make sure the game hasn't started already
+    if player.game.state == STATE_PLAYING:
+	return "Sorry, %s. The game has already started!" % player.name
+    elif player.game.state == STATE_FINISHED:
+	return "Sorry, %s. The game has already finished!" % player.name
+    player.game.start()
+    player.game.issue_phone_calls()
+    return "Game started!"
 
+
+
+######################
+# Vote for a player
+######################
 @SMSCommand("vote",False,
 	    (str,'player_name'))
 def handle_vote(player,  other_player):
@@ -169,4 +195,5 @@ def handle_vote(player,  other_player):
     other_guy = other_guys[0]
     Vote.objects.create(player=player,
 			target=other_guy).process()
+    player.game.issue_phone_calls()
     return "Your vote has been recorded."

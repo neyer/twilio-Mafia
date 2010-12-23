@@ -9,7 +9,7 @@ from unittest import TestCase
 from models import *
 import random
 
-class SimpleGameTest(TestCase):
+class SimpleGameTest:#(TestCase):
 
     def setUp(self):
 
@@ -128,7 +128,19 @@ class SimpleGameTest(TestCase):
 
 from django.test import Client
 
-class BrowserTest(TestCase):
+class TestPlayer:
+    def __init__(self,name, number):
+	self.id = None
+	self.name = name
+	self.number = number
+
+    def get(self):
+	return Player.objects.get(id=self.id)
+
+    
+class HTTPStackTest(TestCase):
+    "A tester that sends sms messages to the server " \
+    "and checks database to make sure things are gravy."
 
     def get_existing_player(self, phone_number, name):
 	"gets the player if it exists, asserts if it doesn't."
@@ -136,72 +148,161 @@ class BrowserTest(TestCase):
 					name=name)
 	self.failUnlessEqual(len(players),1)
 	return players[0]
+
+    def send_sms_message(self, from_num, message):
+	"gets the url response from sending the message."
+
+	client = Client()
+	response = client.post('/mafia/sms', 
+				    {'From': from_num,
+				    'Body': message})
+
+	self.failUnlessEqual(response.status_code,200)
+	return response	
+
+    def do_mafia_kill(self):	
+	"has the mafia kill the first townsperson"
+	town_players = self.game.get_team(TOWN)
+	victim = town_players[0]
+	mafia_players = self.game.get_team(MAFIA)
+	for mafia_dude in mafia_players:
+	    #before any vote, this guy shouldn't be dead
+	    print "%s voting for %s." % (mafia_dude.name,
+					    victim.name)	
+	    self.failUnlessEqual(victim.alive,  True)
+	    self.send_sms_message(mafia_dude.phone_num,
+				  "vote %s" % victim.name)
+	    #update this guy from the database
+	    victim = Player.objects.get(id=victim.id) 
+	    
+	self.failUnlessEqual(victim.alive, False)
+
+    def do_town_kill(self):
+	"has the town players kill a mafia person"
+	town_players = self.game.get_team(TOWN)
+	mafia_players = self.game.get_team(MAFIA)
 	
-    def test_JoinAndStart(self):
+	town_count = len(town_players)
+	mafia_count = len(mafia_players)
+
+	if town_count < mafia_count:
+	    raise Exception("Game has already ended wtf.")
+	victim = mafia_players[0]
+	votes = 0
+	votes_needed = int(1+(town_count+mafia_count)*0.5)
+	
+	for town_guy in town_players:
+	    self.send_sms_message(town_guy.phone_num,
+	    		      "vote %s" % victim.name)
+	    votes += 1
+	    victim = Player.objects.get(id=victim.id)
+	    self.failUnlessEqual(victim.alive,
+	    		     votes < votes_needed)
+    
+    def assert_team_sizes(self, town, mafia):
+	"asserts that the teams are the specified sizes"
+	town_team = self.game.get_team(TOWN)
+	mafia_team = self.game.get_team(MAFIA)
+	self.failUnlessEqual(town, len(town_team))
+	self.failUnlessEqual(mafia, len (mafia_team))	
+    
+    def setUp(self):
 	#creates a game, has two players join it
 	#and starts the game.
 	game_name = 'game1'
 	game_password = 'pass1'
-	
-	players = [ { 'name' : 'frank',
-		    'phone' : '123'},
-		    {'name' : 'jim',
-		      'phone' : '456'},
-		    {'name' : 'fred',
-		      'phone' : '789'} ]
 
-	frank = players[0]
-	jim = players[1]
-	fred = players[2]
+	num_testers = 10
+	testers = [ TestPlayer(str(x), str(100000+x))
+		    for x in range(num_testers)]
 
-	frank['client'] = Client()
-	creation_body = 'new %s %s %s' % (frank['name'], game_name,
-						    game_password)
-	response = frank['client'].post('/mafia/sms', 
-				    {'From': frank['phone'],
-				    'Body': creation_body})
-	
-	#make sure we get a status ok
-	self.failUnlessEqual(response.status_code,200)
+	#the first guy shall be the admin
+	admin = testers[0]
+        	
+	creation_body = 'new %s %s %s' % (admin.name,
+					  game_name,
+					 game_password)
+	self.send_sms_message(admin.number, creation_body)
 	
 	#make sure a game has been created in the database
 	games = Game.objects.filter(name=game_name)
 	self.failUnlessEqual(len(games),1)
-	players = Player.objects.filter(phone_num=frank['phone'])
+	players = Player.objects.filter(phone_num=admin.number)
 	self.failUnlessEqual(len(players),1)
 	self.failUnlessEqual(players[0].game, games[0])
 
 	game = games[0]
-	frank['player'] = players[0]
+	self.game = game
+	admin.id = players[0].id
 	self.failUnlessEqual(game.state,STATE_SETUP)
 
+	for player in testers[1:]:
+	    msg_body = "join %s %s %s" % (player.name,
+					  game_name,
+					  game_password)
+	    self.send_sms_message(player.number,
+				 msg_body)
+	    players = Player.objects.filter(phone_num=player.number)	    
+	    self.failUnlessEqual(len(players),1)
+	    player.id = players[0].id
+	    self.failUnlessEqual(players[0].game,game)
+				 
 
-	#have jim and fred join the game
-	jim['client'] = Client()
-	jim_body = "join %s %s %s" % (jim['name'],
-					game_name, 
-					game_password) 
-	jim['response'] = jim['client'].post('/mafia/sms',
-					{'From' :jim['phone'],
+	for player in testers:
+	    print "%s has id %s" % (player.name, player.id)
+	#once everybody is in,  start the game
+	self.send_sms_message(admin.number,
+			       "start")
+	#make sure the game has started
+	game = Game.objects.get(id=game.id)
+	self.game = game
+	self.failUnlessEqual(game.state,STATE_PLAYING)
+
+	#make sure that the number of players is correct
+	num_mafia = int(num_testers*MAFIA_FRACTION)
+	num_town = num_testers - num_mafia
+	self.assert_team_sizes(num_town, num_mafia)
+
+    def tearDown(self):
+	for vote in Vote.objects.all():
+	    vote.delete()
+	for player in Player.objects.all():
+	    player.delete()
+	self.game.delete()
+
+    def test_SeeSaw(self):
+	"first mafia kills, then town, then mafia..."
+	#now have the mafia kill two townspeople
+	for x in range(2):
+	    self.do_mafia_kill()
+	#make sure the town team has been fixed
+	self.assert_team_sizes(5,3)
+
+	#print "####################################"
+	#now have the town kill two mafia people
+	for x in range(2):
+	    self.do_town_kill()
 	
-    				 'Body' : jim_body})
-	self.failUnlessEqual(jim['response'].status_code,200)
+	#make sure two mafia guys are dead
+	self.assert_team_sizes(5, 1)
+	#at this point, 2 towns people are dead
+	#and two mafia are dead
+	#that means we have 5 townspeople and 1 mafia left
+	for x in range(3):
+	    self.do_mafia_kill()
+	self.assert_team_sizes(2,1)
+    
+	#but the town wins in the end!
+	self.do_town_kill()
+	#at this point the game should be over
+	#as the mafia has won.
+	self.game = Game.objects.get(id=self.game.id)  
+	self.failUnlessEqual(self.game.state,STATE_FINISHED)  
 
-	#make sure we have the player jim
-	jim['player'] = self.get_existing_player(jim['phone'],
-						 jim['name'])	
-	self.failUnlessEqual(jim['player'].game,game)
-	#fred's turn
-	fred['client'] = Client()
-	fred_body = "join %s %s %s" % (fred['name'],
-					game_name, 
-					game_password) 
-	fred['response'] = fred['client'].post('/mafia/sms',
-					{'From' :fred['phone'],
-					'Body' : fred_body})
-	self.failUnlessEqual(fred['response'].status_code,200)
-
-	#make sure we have the player fred
-	fred['player'] = self.get_existing_player(fred['phone'],
-						 fred['name'])		
-	self.failUnlessEqual(fred['player'].game,game)
+    def test_QuickMafiaWin(self):
+	for x in range(4):	    
+	    print "Checking state before killing player %d."%x
+    	    self.failUnlessEqual(self.game.state,STATE_PLAYING)
+	    self.do_mafia_kill();
+	    self.game = Game.objects.get(id=self.game.id)
+	self.failUnlessEqual(self.game.state,STATE_FINISHED)
