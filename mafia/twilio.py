@@ -26,7 +26,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 __VERSION__ = "2.0.1"
 
 import urllib, urllib2, base64, hmac
-from hashlib import sha1
+#from hashlib import sha1
 from xml.sax.saxutils import escape, quoteattr
 
 try:

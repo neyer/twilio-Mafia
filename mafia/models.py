@@ -39,11 +39,16 @@ KILLED_TEXTS = { MAFIA : 'You have been accused by the town of mafiary '\
 	    }
 
 
-VICTORY_TEXTS = { MAFIA : 'The mafia have taken over the town. May god have mercy on us all.',
-		  TOWN : 'The town has killed off the mafia! Now we can sleep safe at night.'
+VICTORY_TEXTS = { MAFIA : 'The mafia have taken over the town. May god have mercy on us all.'.replace(' ','%20'),
+		  TOWN : 'The town has killed off the mafia! Now we can sleep safe at night.'.replace(' ','%20')
 		  }
 TWIMLETS_BASE_URL = 'http://twimlets.com/message?Message%%5B0%%5D=%s'
 
+
+######################################
+# Game: each game has its own model
+# a player can only be in one game
+######################################
 class Game(models.Model):
     "Represents a single game of mafia."
 
@@ -56,27 +61,44 @@ class Game(models.Model):
     state = models.IntegerField(default=STATE_SETUP)
 
 
+    ###########################################
+    # Utility functions for getting sets of players
+    ######################################
+
+
     def get_ghosts(self):
 	return Player.objects.filter(game=self).filter(alive=False)	
-    def get_players(self):
-        return Player.objects.filter(game=self).filter(alive=True)
+
+    def get_players(self, alive_only=True):
+        players =  Player.objects.filter(game=self)
+	if alive_only: players = players.filter(alive=True)
+	return players
 
     def get_team(self, for_team):
         return self.get_players().filter(team=for_team).filter(alive=True)
 
-    def issue_phone_calls(self):
-	"makes all the outgoing calls happen"
-        players = self.get_players()
-	for player in players:
-	    calls = OutgoingPhoneCall.objects.filter(to_player=player)
-	    for call in calls:
-		call.make()
-		call.delete()
+
+    ####################################
+    # Utility communication functions
+    ####################################
 
 
+    def call_everyone(self, twiml_url, alive_only=True):
+	for player in self.get_players(alive_only):
+	    player.call(twiml_url)
+
+    def message_everyone(self, message, alive_only=True):
+	for player in self.get_players(alive_only):
+	    player.send_message(message)
+	
+    ###############################################
+    # Starting or restarting the game
+    ###############################################
     def start(self):
 	"starts the game, telling each player his role."
-        players = self.get_players()
+	#don't filter out the dead players
+	#since we're starting the game again
+	players = self.get_players(False)
         num_players = len(players)
         num_mafia = num_players*MAFIA_FRACTION
 						
@@ -85,10 +107,14 @@ class Game(models.Model):
 
         i = 0
         for player in unassigned:
+	    #the player is a live now
+	    player.alive = True
             if i >= num_mafia:
                 player.assign_team(TOWN)
+		player.send_message('The game has started! You are a townsperson.')
             else:
                 player.assign_team(MAFIA)
+		player.send_message('The game has started! You are a mafia.')
             i += 1
 
         
@@ -99,33 +125,44 @@ class Game(models.Model):
         self.state = STATE_PLAYING
         self.save()
 
+
+    ##############################
+    #   Voting Methods
+    #  Root method is check_votes 
+    # this is basically a wrapper around check_for_kill
+    ##############################
         
     def check_votes(self):
         "Checks all votes to determine wether a kill should occur."
         players = self.get_players()
         
-        #initialize an empty vote count for each side
-        town_voters = self.get_team(TOWN)
-        mafia_voters = self.get_team(MAFIA)
-        
         town_votes_needed = int(1+(len(players)/2.0))
 
-        self.check_for_kill(town_voters, town_votes_needed, TOWN)
-        self.check_for_kill(mafia_voters, len(mafia_voters), MAFIA)
+        self.check_for_kill(TOWN, town_votes_needed)
+        self.check_for_kill(MAFIA, len(self.get_team(MAFIA)))
 
+    def get_votes (self, voting_team):
+        "Returns a mapping: player -> # of votes"
+	#get the list of players that are voting
+	if voting_team == MAFIA:
+	    voters = self.get_players()
+	else:
+	    voters = self.get_team(TOWN)
 
-
-    def check_for_kill(self, voters, votes_needed, killing_team):
-        "Determines if the given set of voters has enough votes "\
-        "to kill their target."
-	print "%d/%d votes needed." % (votes_needed, len(voters))
-        votes = {}
-        for player in self.get_players():
+	#now figure out how many votes each player gets
+	votes = {}
+	for player in self.get_players():
             votes[player] = 0
 
         for voter in voters:
             if voter.target and voter.target.alive:
                 votes[voter.target] += 1
+	return votes
+
+    def check_for_kill(self, voting_team, votes_needed):
+        "Determines if the given set of voters has enough votes "\
+        "to kill their target."
+        votes = self.get_votes(voting_team)
 	max_votes = 0
 	lucky_guy = None
         for victim in votes:
@@ -135,31 +172,31 @@ class Game(models.Model):
             if victim.alive and votes[victim] >= votes_needed:
 		print "%d votes for %s. Death!" % (votes[victim],
 						    victim.name)    
-		self.kill(victim,killing_team)
+		self.kill(victim,voting_team)
                 return
 	if lucky_guy:
 	    print "%s got %d votes. Not enough."  % (lucky_guy.name,
 					  max_votes)
+    #####################################
+    # Killing and checking for victory
+    #####################################
     def kill(self, victim, killing_team):
 	print '%s DIED OMG WTF' % victim.name 
-        victim.die()        
+        victim.die(killing_team)        
 			          
         winner = self.check_for_victory()
 
         if winner:
-	    url = (TWIMLETS_BASE_URL % VICTORY_TEXTS[winner])
-	    for player in self.get_players():
-		OutgoingPhoneCall.objects.create(to_player=player,
-						 twiml_url=url)
-	    for player in self.get_ghosts():
-		OutgoingPhoneCall.objects.create(to_player=player,
-						 twiml_url=url)
+	    twiml_url = (TWIMLETS_BASE_URL % VICTORY_TEXTS[winner]) 
+	    self.call_everyone(twiml_url,False)
 	    self.state = STATE_FINISHED	    
             self.save()
 	else:
 	    url = (TWIMLETS_BASE_URL % KILLED_TEXTS[victim.team])
-	    OutgoingPhoneCall.objects.create(to_player=victim,
-					twiml_url=url)
+	    victim.call(url)
+	    self.message_everyone(url,False)
+
+
     def check_for_victory(self):
         town = self.get_team(TOWN).filter(alive=True)
         mafia = self.get_team(MAFIA).filter(alive=True)
@@ -174,7 +211,11 @@ class Game(models.Model):
 	return None 
 
 
-
+#######################################
+#  Player: each caller in the game has a player
+# players are assigned one of two teams, and are alive or dead.
+# the admin player is the only one who can start the game.
+#######################################
 class Player(models.Model):
     
     phone_num = models.CharField(max_length=64,
@@ -201,13 +242,15 @@ class Player(models.Model):
         self.team = team
         self.save()
 
-    def die(self):
+    def die(self, killing_team):
 	self.alive = False
 	self.save()
+	
+
 
     def send_message(self, message):
 
-	msg = OutgoingMessage.objects.create(to_player=self,
+	msg = OutgoingSMS.objects.create(to_player=self,
 					    body=message)
 	return msg
 
@@ -248,6 +291,11 @@ class OutgoingSMS(models.Model):
         
     
     #eventually we'll define a send function for this guy
+    def send(self):
+	return
+	send_sms(self.to_player.phone_num,
+		    self.body)
+
 
 
 
@@ -256,7 +304,6 @@ class OutgoingPhoneCall(models.Model):
     to_player = models.ForeignKey(Player)
 
     def make(self):
-	print "making a phone call!"
 	return
 	make_call(self.to_player.phone_num,
-		  self.twiml_url)	
+				  self.twiml_url)	

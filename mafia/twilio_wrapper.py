@@ -7,11 +7,21 @@ FROM_NUMBER = '+18302679954'
 
 
 def make_call(phone_number,twiml_url):
-    api_url = '/2010-04-01/Accounts/%s/Calls' % ACCOUNT_SID
+    api_call = '/2010-04-01/Accounts/%s/Calls' % ACCOUNT_SID  
     xml = twilio.Account(ACCOUNT_SID,
-        AUTH_TOKEN).request(api_url,
+        AUTH_TOKEN).request(api_call,
 		          method='POST',
                           vars={'From':FROM_NUMBER,
     		                 'To' : phone_number,
                                  'Url': twiml_url})
-    
+
+
+def send_sms(phone_number, message):
+    api_call = '/2010-04-01/Accounts/%s/SMS/Messages' % ACCOUNT_SID  
+    xml = twilio.Account(ACCOUNT_SID,
+			AUTH_TOKEN).request(api_call,
+					    method='POST',
+					    vars={'From':FROM_NUMBER,
+						  'To': phone_number,
+					          'Body' : message})
+		     

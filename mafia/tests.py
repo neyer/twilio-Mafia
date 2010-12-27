@@ -125,7 +125,9 @@ class SimpleGameTest:#(TestCase):
 	game = Game.objects.get(id=self.game.id)
 	self.failUnlessEqual(game.state, STATE_FINISHED)
 
-
+class SmallGameTests(TestCase):
+    pass
+    
 from django.test import Client
 
 class TestPlayer:
