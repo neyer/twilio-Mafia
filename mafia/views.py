@@ -10,16 +10,17 @@ TWIML_BASE  =	"<Response>" \
 		"%s" \
 		" </Sms>"\
 		"</Response>"
-    
-#dectorator for making sure people send the right number of args
-#to our functions
-#give it the name of the function, and then a tuple for each arg
-#the tuple should contain the type of argument and its name
 
-#has_args will check the function call and handle errors with
-#a response message back to the player.
 class SMSCommand:
+    "Dectorator for making sure people send the right number of args "\
+    "to our functions. "\
+    "Give it the name of the function, and then a tuple for each arg. "\
+    "The tuple should contain the type of argument and its name. "\
+    "has_args will check the function call and handle errors with "\
+    "a response message back to the player." \
+    "Each SMSCommand should take two arguments: a player, and the command "\
     
+
     def __init__(self,name,public=True,*arg_descriptors):
 	self.name = name	
 	self.arg_descs = arg_descriptors
@@ -39,11 +40,9 @@ class SMSCommand:
 	    #if the command is private, we check to see if there's
 	    #a valid users first
 	    if not self.public:	
-		print "This is a private command. Getting player."	
 		players = Player.objects.filter(phone_num=from_num)
 		if not players:
 		    return "You must join a game to do that."
-		print "Got a player. Setting it."
 		from_num = players[0]
 	    #make sure we have the right number of args
 	    #the first arg is the function name so we don't count it
@@ -61,6 +60,7 @@ class SMSCommand:
 	
 	    real_args = [body_parts[i+1] for i in range(req_args)]
 	    return  func(*([from_num] + [body] + real_args))
+	real_func.__doc__ = func.__doc__ 
 	return real_func
 
 
@@ -69,22 +69,14 @@ class SMSCommand:
 #######################
 @csrf_exempt
 def sms(request):
-
-    s = "hello" 
+    global commands
 
     if not ('From' in request.REQUEST and 'Body' in request.REQUEST):
 	return HttpResponse('go away plz')
     sender_num = request.REQUEST['From']
     msg = request.REQUEST['Body']
     msg = msg.lower()
-    commands = { 'new' : handle_new,
-		'join' : handle_join,
-		'vote':  handle_vote,
-		 'start': handle_start,
-		'say' : handle_say,
-		'who' : handle_who,
-		'mafia' : handle_mafia,
-		}
+
 
     parts = msg.split()
     if not parts[0] in commands:
@@ -122,7 +114,8 @@ def sms(request):
 	    (str,"password")
 	    )
 def handle_new(player_num, cmd, player_name,game_name, password):
-    "creates a new game with the given name"	
+    "new <player_name> <game_name> <password>: "\
+    "creates a new game with the given name."	
     games = Game.objects.filter(name=game_name)
     if games:
 	if game.state == STATE_FINISHED:
@@ -159,7 +152,9 @@ def handle_new(player_num, cmd, player_name,game_name, password):
 	    (str,'game_name'),
 	    (str,'password'))
 def handle_join(player_num, cmd, player_name, game_name, password):
-    "adds the player to the given name"	
+    "join <player_name> <game_name> <password>: " \
+    "Join game <game_name> with password <password> " \
+    "as player <player_name>."	
     #first, see if this player is alreay playing a game
     players = Player.objects.filter(phone_num=player_num)
     if players:
@@ -191,6 +186,7 @@ def handle_join(player_num, cmd, player_name, game_name, password):
 ######################
 @SMSCommand('start',False)
 def handle_start(player, cmd):
+    "<start>: start the game, or restart a finished game."
     #make sure the game hasn't started already
     if player.game.state == STATE_PLAYING:
 	return "Sorry, %s. The game has already started!" % player.name
@@ -209,7 +205,7 @@ def handle_start(player, cmd):
 @SMSCommand("vote",False,
 	    (str,'player_name'))
 def handle_vote(player, cmd,  other_player):
-    "First player votes for second player."
+    "vote <player>: vote to kill <player>."
     #make sure this player's game has started.
     if player.game.state != STATE_PLAYING:
 	return "You cannot vote until the game has begun!"
@@ -228,6 +224,7 @@ def handle_vote(player, cmd,  other_player):
 #######################
 @SMSCommand("who",False)
 def handle_who(player, cmd):
+    "who: Find out who is in the game."
     players = player.game.get_players()
     message = ', '.join([p.name for p in players])
     
@@ -245,6 +242,7 @@ def handle_who(player, cmd):
 ######################################
 @SMSCommand("say",False)
 def handle_say(player,cmd):
+    "say: Send a message to all the other players."
     #get a list of all the players in this game	
     message = player.name+': '+' '.join(cmd.split(' ')[1:])
     players = player.game.get_players()
@@ -260,6 +258,7 @@ def handle_say(player,cmd):
 ######################################
 @SMSCommand("mafia",False)
 def handle_mafia(player,cmd):
+    "mafia: Send a message to the mafia."
     #get a list of all the players in this game	
     message = player.name+': '+' '.join(cmd.split(' ')[1:])
     players = player.game.get_players().filter(team=MAFIA)
@@ -274,17 +273,43 @@ def handle_mafia(player,cmd):
 #######################################
 @SMSCommand("votes",False)
 def handle_votes(player, cmd):
+    "votes: Find out how many players are voting for each player."
     #get a list of all players and how many votes they have
     votes = player.game.get_votes(player.team)
 
-    msg = ', '.join(['%s: %d' % key, votes[key]
+    msg = ', '.join(['%s: %d' % (key.name, votes[key])
 		      for key
 			in votes])
     return msg
 
 
+########################################
+# gets help for a command
+########################################
+@SMSCommand("help",True)
+def handle_help(player, cmd):
+    "help: lists all commands. "\
+    "help <name>: gives help for command <name>."
+    global commands
+    #figure out if they just want the list of commands
+    #or help w/ a specific command
+    words = cmd.split()
+    if len(words) == 1:
+	return "Commands are: "+', '.join([key for key in commands])
+    elif not words[1] in commands:
+	return "There is no such command."
+    else:
+	return commands[words[1]].__doc__ 
 
 
-
-
+commands = {'new' : handle_new,
+	    'join' : handle_join,
+	    'start': handle_start,
+	    'vote':  handle_vote,
+	    'say' : handle_say,
+	    'who' : handle_who,
+	    'mafia' : handle_mafia,
+	    'votes' : handle_votes,
+	    'help' : handle_help,
+	    }
 

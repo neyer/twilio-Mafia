@@ -3,6 +3,7 @@ import random
 from twilio_wrapper import *
 # Create your models here.
 from urllib import urlencode
+from django.conf import settings
 
 
 #game states
@@ -145,7 +146,7 @@ class Game(models.Model):
         "Returns a mapping: player -> # of votes"
 	#get the list of players that are voting
 	if voting_team == MAFIA:
-	    voters = self.get_players()
+	    voters = self.get_team(MAFIA)
 	else:
 	    voters = self.get_team(TOWN)
 
@@ -208,7 +209,14 @@ class Game(models.Model):
         elif len(mafia) == 0:
 	    print "TOWN WINS!"
             return TOWN
-	return None 
+	return None
+
+    ################################################
+    #Updating the game as a result of a turn changing
+    ################################################
+
+    def update_tick(self):
+	self.check_votes()
 
 
 #######################################
@@ -258,24 +266,26 @@ class Player(models.Model):
 	msg = OutgoingPhoneCall.objects.create(to_player=self,
 					      twiml_url = twiml_url)
 
-	
+#######################################################
+#  Actions
+# actions are recorded so we can keep track of how many
+# votes each player recieved etc.
+#######################################################	
 #an abstract base class for all player performed actions
 class Action(models.Model):
     player = models.ForeignKey(Player)
     timestamp = models.DateTimeField(auto_now_add=True)
 
-
+#####################################
 #the player votes for another 
+###############################
 class Vote(Action):
     target = models.ForeignKey(Player)
 
     def process(self):
         "Causes the action to play itself out"
-	#print "%s voted for %s" % (self.player.name,
-	#			   self.target.name)
         self.player.target = self.target
         self.player.save()
-        self.player.game.check_votes()
 
 
 
@@ -292,8 +302,10 @@ class OutgoingSMS(models.Model):
     
     #eventually we'll define a send function for this guy
     def send(self):
-	return
-	send_sms(self.to_player.phone_num,
+	if not settings.DEBUG:
+	    print "THIS SHOULD NOT HAPPEN"
+	    return
+	    send_sms(self.to_player.phone_num,
 		    self.body)
 
 
@@ -304,6 +316,8 @@ class OutgoingPhoneCall(models.Model):
     to_player = models.ForeignKey(Player)
 
     def make(self):
-	return
-	make_call(self.to_player.phone_num,
+	if not settings.DEBUG:
+	    print "THIS SHOULD NOT HAPPEN"
+	    return
+	    make_call(self.to_player.phone_num,
 				  self.twiml_url)	
