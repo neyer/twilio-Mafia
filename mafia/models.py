@@ -3,7 +3,6 @@ import random
 from twilio_wrapper import *
 # Create your models here.
 from urllib import urlencode
-from django.conf import settings
 
 
 #game states
@@ -11,7 +10,7 @@ STATE_SETUP = 1
 STATE_PLAYING = STATE_SETUP+1
 STATE_FINISHED = STATE_PLAYING+1
 
-MAFIA_FRACTION = 0.3
+MAFIA_FRACTION = 0.2
 
 #teams
 TOWN = 1
@@ -24,26 +23,33 @@ INTRO_TEXTS = { TOWN : 'Hello. You are a part of the town. '\
 			'Your goal is to  identify the members of the mafia '\
 			'and bring them to justice. You can text '\
 			'vote name to cast your vote for the town to kill '\
-			'name next. Good luck!'.replace(' ','%20'),
+			'name next. Iyou need help, text help. Good luck!',
 
 		MAFIA: 'Hello. You are a part of the mafia. '\
 			'Your goal is to kill the town members one by one '\
-			'until half the town is a mafia member.' \
+			'until half the town is a mafia member. ' \
 			'You can text vote name to cast your vote '\
 			'for name to be the next hit. If you need help '\
-			'text help.'.replace(' ', '%20')
+			'text help.'
 	    }
 
 KILLED_TEXTS = { MAFIA : 'You have been accused by the town of mafiary '\
-			'and are sentenced to die. Have a nice day.'.replace(' ','%20'),
-		TOWN: 'You have been killed by the mafia. Have a nice day.'.replace(' ','%20')
+			'and are sentenced to die. Have a nice day.',
+		TOWN: 'You have been killed by the mafia. Have a nice day.'
 	    }
+OBITUARY_TEXTS = {  MAFIA : 'The town accused and hanged %s .',
+		    TOWN : '%s died violently in the night.'
+		}
 
-
-VICTORY_TEXTS = { MAFIA : 'The mafia have taken over the town. May god have mercy on us all.'.replace(' ','%20'),
-		  TOWN : 'The town has killed off the mafia! Now we can sleep safe at night.'.replace(' ','%20')
+VICTORY_TEXTS = { MAFIA : 'The mafia have taken over the town. ' \
+			  'May god have mercy on us all.',
+		  TOWN : 'The town has killed off the mafia! ' \
+			 'Now we can sleep safe at night.'
 		  }
 TWIMLETS_BASE_URL = 'http://twimlets.com/message?Message%%5B0%%5D=%s'
+
+def make_url_for_text(text):
+    return TWIMLETS_BASE_URL % (text.replace(' ','%20'))
 
 
 ######################################
@@ -112,16 +118,19 @@ class Game(models.Model):
 	    player.alive = True
             if i >= num_mafia:
                 player.assign_team(TOWN)
-		player.send_message('The game has started! You are a townsperson.')
+		player.send_message('The game has started! You are a townsperson. '\
+		'Text "help" for help.')
             else:
                 player.assign_team(MAFIA)
-		player.send_message('The game has started! You are a mafia.')
+		player.send_message('The game has started! You are in the mafia. '\
+		'Text "help" for help.')
             i += 1
 
         
 	players = self.get_players() 
+	
 	for player in players:
-	    player.call(TWIMLETS_BASE_URL % INTRO_TEXTS[player.team]) 
+	    player.call(make_url_for_text(INTRO_TEXTS[player.team])) 
     
         self.state = STATE_PLAYING
         self.save()
@@ -134,6 +143,8 @@ class Game(models.Model):
     ##############################
         
     def check_votes(self):
+	if not self.state == STATE_PLAYING:
+	    return
         "Checks all votes to determine wether a kill should occur."
         players = self.get_players()
         
@@ -188,14 +199,16 @@ class Game(models.Model):
         winner = self.check_for_victory()
 
         if winner:
-	    twiml_url = (TWIMLETS_BASE_URL % VICTORY_TEXTS[winner]) 
+	    twiml_url = make_url_for_text(VICTORY_TEXTS[winner]) 
 	    self.call_everyone(twiml_url,False)
+	    self.message_everyone(VICTORY_TEXTS[winner])
 	    self.state = STATE_FINISHED	    
             self.save()
 	else:
-	    url = (TWIMLETS_BASE_URL % KILLED_TEXTS[victim.team])
+	    url = make_url_for_text(KILLED_TEXTS[victim.team])
 	    victim.call(url)
-	    self.message_everyone(url,False)
+	    everyone_message_text = OBITUARY_TEXTS[victim.team] % victim.name
+	    self.message_everyone(everyone_message_text,False)
 
 
     def check_for_victory(self):
@@ -260,11 +273,13 @@ class Player(models.Model):
 
 	msg = OutgoingSMS.objects.create(to_player=self,
 					    body=message)
+	msg.send()
 	return msg
 
     def call(self, twiml_url):
-	msg = OutgoingPhoneCall.objects.create(to_player=self,
+	call = OutgoingPhoneCall.objects.create(to_player=self,
 					      twiml_url = twiml_url)
+	call.make()
 
 #######################################################
 #  Actions
@@ -302,10 +317,8 @@ class OutgoingSMS(models.Model):
     
     #eventually we'll define a send function for this guy
     def send(self):
-	if not settings.DEBUG:
-	    print "THIS SHOULD NOT HAPPEN"
-	    return
-	    send_sms(self.to_player.phone_num,
+	return
+	send_sms(self.to_player.phone_num,
 		    self.body)
 
 
@@ -316,8 +329,6 @@ class OutgoingPhoneCall(models.Model):
     to_player = models.ForeignKey(Player)
 
     def make(self):
-	if not settings.DEBUG:
-	    print "THIS SHOULD NOT HAPPEN"
-	    return
-	    make_call(self.to_player.phone_num,
+	return 
+	make_call(self.to_player.phone_num,
 				  self.twiml_url)	

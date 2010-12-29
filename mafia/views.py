@@ -80,20 +80,14 @@ def sms(request):
 
     parts = msg.split()
     if not parts[0] in commands:
-	res = TWIML_BASE % "That is not a valid command. Send ? to see valid commands"
+	res = TWIML_BASE % "That is not a valid command. "\
+	      "Send 'help' to see valid commands"
     else:
 	out_msg = commands[parts[0]](sender_num, msg)
 	if out_msg:
 	    res = TWIML_BASE % out_msg
 	else:
 	    res = '<Response></Response>'
-    #now flush all the outgoing phone calls
-    for call in OutgoingPhoneCall.objects.all():
-	call.make()
-	call.delete()
-    for msg in OutgoingSMS.objects.all():
-	msg.send()
-	msg.delete()
     return HttpResponse(res)
 
 
@@ -118,6 +112,7 @@ def handle_new(player_num, cmd, player_name,game_name, password):
     "creates a new game with the given name."	
     games = Game.objects.filter(name=game_name)
     if games:
+	game = games[0]
 	if game.state == STATE_FINISHED:
 	    game.delete()
 	else:
