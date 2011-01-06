@@ -92,3 +92,6 @@ INSTALLED_APPS = (
     'django.contrib.admin',
     'mafia',
 )
+
+#twilio settings
+TWILIO_FOR_REAL = True

@@ -69,6 +69,7 @@ class SimpleGameTest:#(TestCase):
             v = Vote.objects.create(player=mafia_player,
                                     target=self.town_players[0])
             v.process()
+	    self.game.update_tick()
             
             mafia_votes += 1
 
@@ -87,6 +88,7 @@ class SimpleGameTest:#(TestCase):
             v  = Vote.objects.create(player=town_player,
                                      target=self.mafia_players[0])
             v.process()
+	    self.game.update_tick()
             town_votes+= 1
 
 	    living_mafia = len(self.game.get_team(MAFIA))
@@ -103,6 +105,7 @@ class SimpleGameTest:#(TestCase):
 		v = Vote.objects.create(player=town_player,
 					target=mafia_player)
 		v.process()
+		self.game.update_tick()
     
 	game = Game.objects.get(id=self.game.id)
 	self.failUnlessEqual(game.state, STATE_FINISHED)
@@ -116,6 +119,7 @@ class SimpleGameTest:#(TestCase):
 		v = Vote.objects.create(player=mafia_dude,
 					target=town_dude)
 		v.process()
+		self.game.update_tick()
 		votes_for_this_dude += 1	
 		#refresh this guy from the DB
 		town_dude = Player.objects.get(id=town_dude.id)
@@ -174,11 +178,14 @@ class HTTPStackTest(TestCase):
 	    self.failUnlessEqual(victim.alive,  True)
 	    self.send_sms_message(mafia_dude.phone_num,
 				  "vote %s" % victim.name)
+	    self.game.update_tick() 
 	    #update this guy from the database
-	    victim = Player.objects.get(id=victim.id) 
+	    victim = Player.objects.get(id=victim.id)
+	    
 	    
 	self.failUnlessEqual(victim.alive, False)
-
+	self.game.update_tick()
+    
     def do_town_kill(self):
 	"has the town players kill a mafia person"
 	town_players = self.game.get_team(TOWN)
@@ -197,6 +204,7 @@ class HTTPStackTest(TestCase):
 	    self.send_sms_message(town_guy.phone_num,
 	    		      "vote %s" % victim.name)
 	    votes += 1
+	    self.game.update_tick()
 	    victim = Player.objects.get(id=victim.id)
 	    self.failUnlessEqual(victim.alive,
 	    		     votes < votes_needed)
@@ -278,21 +286,21 @@ class HTTPStackTest(TestCase):
 	for x in range(2):
 	    self.do_mafia_kill()
 	#make sure the town team has been fixed
-	self.assert_team_sizes(5,3)
+	self.assert_team_sizes(6,2)
 
 	#print "####################################"
 	#now have the town kill two mafia people
-	for x in range(2):
+	for x in range(1):
 	    self.do_town_kill()
 	
 	#make sure two mafia guys are dead
-	self.assert_team_sizes(5, 1)
+	self.assert_team_sizes(6, 1)
 	#at this point, 2 towns people are dead
 	#and two mafia are dead
 	#that means we have 5 townspeople and 1 mafia left
 	for x in range(3):
 	    self.do_mafia_kill()
-	self.assert_team_sizes(2,1)
+	self.assert_team_sizes(3,1)
     
 	#but the town wins in the end!
 	self.do_town_kill()
@@ -302,7 +310,7 @@ class HTTPStackTest(TestCase):
 	self.failUnlessEqual(self.game.state,STATE_FINISHED)  
 
     def test_QuickMafiaWin(self):
-	for x in range(4):	    
+	for x in range(6):	    
 	    print "Checking state before killing player %d."%x
     	    self.failUnlessEqual(self.game.state,STATE_PLAYING)
 	    self.do_mafia_kill();

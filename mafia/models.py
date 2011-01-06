@@ -33,12 +33,12 @@ INTRO_TEXTS = { TOWN : 'Hello. You are a part of the town. '\
 			'text help.'
 	    }
 
-KILLED_TEXTS = { MAFIA : 'You have been accused by the town of mafiary '\
+KILLED_TEXTS = { TOWN : 'You have been accused by the town of mafiary '\
 			'and are sentenced to die. Have a nice day.',
-		TOWN: 'You have been killed by the mafia. Have a nice day.'
+		 MAFIA: 'You have been killed by the mafia. Have a nice day.'
 	    }
-OBITUARY_TEXTS = {  MAFIA : 'The town accused and hanged %s .',
-		    TOWN : '%s died violently in the night.'
+OBITUARY_TEXTS = {  TOWN : 'The town accused and hanged %s .',
+		    MAFIA : '%s died violently in the night.'
 		}
 
 VICTORY_TEXTS = { MAFIA : 'The mafia have taken over the town. ' \
@@ -129,8 +129,6 @@ class Game(models.Model):
         
 	players = self.get_players() 
 	
-	for player in players:
-	    player.call(make_url_for_text(INTRO_TEXTS[player.team])) 
     
         self.state = STATE_PLAYING
         self.save()
@@ -205,9 +203,9 @@ class Game(models.Model):
 	    self.state = STATE_FINISHED	    
             self.save()
 	else:
-	    url = make_url_for_text(KILLED_TEXTS[victim.team])
+	    url = make_url_for_text(KILLED_TEXTS[killing_team])
 	    victim.call(url)
-	    everyone_message_text = OBITUARY_TEXTS[victim.team] % victim.name
+	    everyone_message_text = OBITUARY_TEXTS[killing_team] % victim.name
 	    self.message_everyone(everyone_message_text,False)
 
 
@@ -231,6 +229,35 @@ class Game(models.Model):
     def update_tick(self):
 	self.check_votes()
 
+    ###############################################
+    # Getting statistics for games
+    ###############################################
+
+    def get_total_votes(self):
+	vote_counts = {}
+	for player in self.get_players(False):
+	    votes = Vote.objects.filter(player=player)
+	    vote_counts[player.name] = len(votes)
+
+	return vote_counts
+
+
+    def get_target_counts(self):
+	target_counts = {}
+	for target in self.get_players(False):
+	    votes = Vote.obejcts.filter(target=target)
+	    target_counts[target.name] = len(votes)
+
+	return target_counts
+	
+    
+
+    
+
+	
+
+	
+	 
 
 #######################################
 #  Player: each caller in the game has a player
@@ -317,7 +344,6 @@ class OutgoingSMS(models.Model):
     
     #eventually we'll define a send function for this guy
     def send(self):
-	return
 	send_sms(self.to_player.phone_num,
 		    self.body)
 
@@ -329,6 +355,5 @@ class OutgoingPhoneCall(models.Model):
     to_player = models.ForeignKey(Player)
 
     def make(self):
-	return 
 	make_call(self.to_player.phone_num,
 				  self.twiml_url)	

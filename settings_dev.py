@@ -92,3 +92,5 @@ INSTALLED_APPS = (
     'django.contrib.admin',
     'mafia',
 )
+
+TWILIO_FOR_REAL = False

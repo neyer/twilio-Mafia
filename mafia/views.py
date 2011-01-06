@@ -209,6 +209,9 @@ def handle_vote(player, cmd,  other_player):
     other_guys = same_game.filter(name=other_player)
     if not other_guys:
 	return "Sorry,  %s. No player %s exists in game %s." % (player.name, other_player, player.game.name)
+
+    if not player.alive:
+	return "Silly %s, ghosts can't vote." % (player.name)
     other_guy = other_guys[0]
     Vote.objects.create(player=player,
 			target=other_guy).process()
@@ -223,7 +226,7 @@ def handle_who(player, cmd):
     players = player.game.get_players()
     message = ', '.join([p.name for p in players])
     
-    if player.team == MAFIA:
+    if player.team == MAFIA or (not player.alive):
 	message += '. Mafia players are: '+ ', '.join([p.name 
 						for p 
 						in players
@@ -270,7 +273,7 @@ def handle_mafia(player,cmd):
 def handle_votes(player, cmd):
     "votes: Find out how many players are voting for each player."
     #get a list of all players and how many votes they have
-    votes = player.game.get_votes(player.team)
+    votes = player.game.get_votes(player.teaim)
 
     msg = ', '.join(['%s: %d' % (key.name, votes[key])
 		      for key
@@ -297,6 +300,23 @@ def handle_help(player, cmd):
 	return commands[words[1]].__doc__ 
 
 
+##########################################
+# ends the game. only admins can do it.
+##########################################
+@SMSCommand("end",False)
+def handle_end(player, cmd):
+    "end: ends the game. "
+    if not player.is_admin:
+	return "You do not have permission to end this game. "
+
+    #kick all the players out of the game
+    for player in player.game.get_players(False):
+	player.delete()
+    game.delete()
+
+    return "Game deleted."
+
+
 commands = {'new' : handle_new,
 	    'join' : handle_join,
 	    'start': handle_start,
@@ -306,5 +326,6 @@ commands = {'new' : handle_new,
 	    'mafia' : handle_mafia,
 	    'votes' : handle_votes,
 	    'help' : handle_help,
+	    'end' : handle_end
 	    }
 
