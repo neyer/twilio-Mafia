@@ -257,12 +257,22 @@ def handle_say(player,cmd):
 @SMSCommand("mafia",False)
 def handle_mafia(player,cmd):
     "mafia: Send a message to the mafia."
-    #get a list of all the players in this game	
+    #sends the message to mafia players and dead players
     message = player.name+': '+' '.join(cmd.split(' ')[1:])
     players = player.game.get_players().filter(team=MAFIA)
 
     for player in players:
 	player.send_message(message)
+
+    players = player.game.get_players(False).filter(alive=False)
+    
+    for player in players:
+	player.send_message(message)
+
+    town_players = player.game.get_TEAM(TOWN)
+
+    for player in town_players:
+	player.send_message("The mafia are talking.")
     return None
 
 
