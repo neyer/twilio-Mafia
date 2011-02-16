@@ -64,6 +64,8 @@ class Game(models.Model):
                             unique=True,
                             db_index =True)
     password = models.CharField(max_length=32)	
+    ticks_left =  models.IntegerField()
+    ticks_needed =  models.IntegerField()
 
     state = models.IntegerField(default=STATE_SETUP)
 
